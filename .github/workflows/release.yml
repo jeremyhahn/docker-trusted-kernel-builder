@@ -1,0 +1,340 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/trusted-kernel-builder
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Version: ${VERSION}"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get previous tag
+          PREV_TAG=$(git describe --abbrev=0 --tags $(git rev-list --tags --skip=1 --max-count=1) 2>/dev/null || echo "")
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "First release - generating full changelog"
+            CHANGELOG=$(git log --pretty=format:"* %s (%h)" --no-merges)
+          else
+            echo "Generating changelog from ${PREV_TAG} to ${GITHUB_REF_NAME}"
+            CHANGELOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"* %s (%h)" --no-merges)
+          fi
+
+          # Save changelog to file
+          cat > CHANGELOG.md << EOF
+          ## What's Changed
+
+          ${CHANGELOG}
+
+          ## Installation
+
+          ### Using Pre-built Kernel
+
+          Download the kernel artifacts from the release assets below:
+
+          **Virt Profile** (Minimal - VMs/Containers):
+          - \`vmlinuz-fips-virt-${{ steps.get_version.outputs.version }}.tar.gz\` - Minimal FIPS kernel for virtualized environments
+
+          **Full Profile** (Complete - Bare Metal/Containers):
+          - \`vmlinuz-fips-full-${{ steps.get_version.outputs.version }}.tar.gz\` - Full-featured FIPS kernel with container runtime and networking
+
+          ### Verify Checksums
+
+          \`\`\`bash
+          # Verify the release archive
+          sha256sum -c vmlinuz-fips-virt-${{ steps.get_version.outputs.version }}.tar.gz.sha256
+          # or
+          sha256sum -c vmlinuz-fips-full-${{ steps.get_version.outputs.version }}.tar.gz.sha256
+
+          # After extraction, verify individual files
+          cd vmlinuz-fips-virt-${{ steps.get_version.outputs.version }}
+          sha256sum -c vmlinuz-fips.sha256
+          \`\`\`
+
+          ### Using Docker Builder
+
+          \`\`\`bash
+          # Pull the builder image
+          docker pull ghcr.io/${{ github.repository_owner }}/trusted-kernel-builder:${{ steps.get_version.outputs.version }}
+
+          # Build virt profile (default - minimal)
+          mkdir -p output
+          docker run --rm -v \$(pwd)/output:/output \\
+            ghcr.io/${{ github.repository_owner }}/trusted-kernel-builder:${{ steps.get_version.outputs.version }}
+
+          # Build full profile (all features)
+          docker run --rm -v \$(pwd)/output:/output \\
+            -e KERNEL_PROFILE=full \\
+            ghcr.io/${{ github.repository_owner }}/trusted-kernel-builder:${{ steps.get_version.outputs.version }}
+          \`\`\`
+
+          ### Kernel Profiles
+
+          **Virt Profile** (Default):
+          - FIPS 140-3 cryptographic module support
+          - TPM 2.0 support (built-in for early boot)
+          - Device mapper and dm-crypt for LUKS encryption
+          - Essential filesystems (ext4, xfs, btrfs, overlay)
+          - VirtIO drivers for VM deployment
+          - EFI stub support
+
+          **Full Profile**:
+          - All virt features plus:
+          - Container runtime (namespaces, cgroups, BPF/eBPF, LSM)
+          - Advanced networking (bridge, netfilter, Open vSwitch, VXLAN)
+          - Security hardening (IMA, SELinux, lockdown LSM)
+          - Extended cryptography and compression
+
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${GITHUB_REF_NAME}
+          EOF
+
+          cat CHANGELOG.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: CHANGELOG.md
+          draft: false
+          prerelease: ${{ contains(steps.get_version.outputs.version, 'alpha') || contains(steps.get_version.outputs.version, 'beta') || contains(steps.get_version.outputs.version, 'rc') }}
+          generate_release_notes: false
+
+  build-kernel:
+    name: Build FIPS Kernel (${{ matrix.profile }})
+    needs: create-release
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        profile: [virt, full]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf /usr/local/lib/android
+          df -h
+
+      - name: Build FIPS kernel (${{ matrix.profile }} profile)
+        run: KERNEL_PROFILE=${{ matrix.profile }} make build
+        timeout-minutes: 90
+
+      - name: Test kernel artifacts
+        run: make test
+
+      - name: Get kernel version
+        id: kernel_version
+        run: |
+          KVER=$(cat output/kernel-version.txt)
+          echo "kernel_version=${KVER}" >> $GITHUB_OUTPUT
+          echo "Kernel version: ${KVER}"
+
+      - name: Create release archive
+        run: |
+          VERSION="${{ needs.create-release.outputs.version }}"
+          KVER="${{ steps.kernel_version.outputs.kernel_version }}"
+          PROFILE="${{ matrix.profile }}"
+          ARCHIVE_NAME="vmlinuz-fips-${PROFILE}-${VERSION}"
+
+          mkdir -p release/${ARCHIVE_NAME}
+
+          # Copy all artifacts
+          cp output/vmlinuz-fips release/${ARCHIVE_NAME}/
+          cp output/vmlinuz-fips.sha256 release/${ARCHIVE_NAME}/
+          cp output/modules-fips-${KVER}.tar.gz release/${ARCHIVE_NAME}/
+          cp output/modules-fips-${KVER}.tar.gz.sha256 release/${ARCHIVE_NAME}/
+          cp output/System.map-fips release/${ARCHIVE_NAME}/
+          cp output/config-fips release/${ARCHIVE_NAME}/
+          cp output/kernel-version.txt release/${ARCHIVE_NAME}/
+
+          # Create profile-specific README
+          PROFILE_DESC=""
+          PROFILE_FEATURES=""
+
+          if [ "$PROFILE" = "virt" ]; then
+            PROFILE_DESC="Minimal FIPS kernel optimized for virtualized environments, containers, and cloud deployments."
+            PROFILE_FEATURES="- Essential filesystems (ext4, xfs, btrfs, overlay)
+          - VirtIO drivers for VM deployment
+          - EFI stub support
+          - Minimal hardware support for smaller kernel size"
+          else
+            PROFILE_DESC="Full-featured FIPS kernel with container runtime and advanced networking support."
+            PROFILE_FEATURES="- All virt features
+          - Container runtime (namespaces, cgroups, BPF/eBPF)
+          - Advanced networking (bridge, netfilter, Open vSwitch, VXLAN)
+          - Security hardening (IMA, SELinux, lockdown LSM)
+          - Extended cryptography and compression"
+          fi
+
+          # Create README for the archive
+          cat > release/${ARCHIVE_NAME}/README.md << EOF
+          # FIPS Kernel ${KVER} (${PROFILE} profile)
+
+          ${PROFILE_DESC}
+
+          ## Profile Features
+
+          ${PROFILE_FEATURES}
+
+          ## Contents
+
+          - \`vmlinuz-fips\` - Kernel image
+          - \`modules-fips-${KVER}.tar.gz\` - Kernel modules
+          - \`System.map-fips\` - Kernel symbol map
+          - \`config-fips\` - Kernel configuration
+          - \`*.sha256\` - SHA256 checksums
+
+          ## Installation
+
+          1. Copy vmlinuz-fips to /boot/
+          2. Extract modules to /lib/modules/
+          3. Update bootloader configuration
+          4. Reboot
+
+          ## Verification
+
+          \`\`\`bash
+          sha256sum -c vmlinuz-fips.sha256
+          sha256sum -c modules-fips-${KVER}.tar.gz.sha256
+          \`\`\`
+
+          ## FIPS Mode
+
+          To enable FIPS mode at boot, add \`fips=1\` to kernel parameters.
+          EOF
+
+          # Create tar.gz archive
+          cd release
+          tar czf ../${ARCHIVE_NAME}.tar.gz ${ARCHIVE_NAME}
+          cd ..
+
+          # Generate SHA256 checksum for the archive
+          sha256sum ${ARCHIVE_NAME}.tar.gz > ${ARCHIVE_NAME}.tar.gz.sha256
+
+          echo "Created archive: ${ARCHIVE_NAME}.tar.gz"
+          ls -lh ${ARCHIVE_NAME}.*
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            vmlinuz-fips-${{ matrix.profile }}-${{ needs.create-release.outputs.version }}.tar.gz
+            vmlinuz-fips-${{ matrix.profile }}-${{ needs.create-release.outputs.version }}.tar.gz.sha256
+
+  build-docker:
+    name: Build & Push Docker Image
+    needs: create-release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  announce-release:
+    name: Announce Release
+    needs: [create-release, build-kernel, build-docker]
+    runs-on: ubuntu-latest
+    if: success()
+
+    steps:
+      - name: Update release notes with Docker info
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const release = await github.rest.repos.getReleaseByTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag: context.ref.replace('refs/tags/', '')
+            });
+
+            const currentBody = release.data.body || '';
+            const dockerInfo = `\n\n## Docker Image\n\nThe builder image is available at:\n\n\`\`\`bash\ndocker pull ghcr.io/${{ github.repository_owner }}/kernel-fips-builder:${{ needs.create-release.outputs.version }}\n\`\`\`\n`;
+
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: release.data.id,
+              body: currentBody + dockerInfo
+            });
+
+      - name: Release summary
+        run: |
+          echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Version: **${{ needs.create-release.outputs.version }}**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Artifacts Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Kernel Package" >> $GITHUB_STEP_SUMMARY
+          echo "- \`vmlinuz-fips-${{ needs.create-release.outputs.version }}.tar.gz\` - FIPS kernel and modules" >> $GITHUB_STEP_SUMMARY
+          echo "- SHA256 checksums included for verification" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### Docker Image" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ghcr.io/${{ github.repository_owner }}/kernel-fips-builder:${{ needs.create-release.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
