@@ -1,0 +1,30 @@
+# Keep the build context small.
+#
+# The Dockerfile COPYs only configs/ and build-fips-kernel.sh, so nothing here
+# is at risk of being baked into the image — but the whole directory is still
+# sent to the daemon on every build, and output/ holds a ~16 MB kernel image
+# plus its modules tarball. Excluding it keeps `make build` and
+# `make image-scan` from shipping the previous build's artifacts each time.
+
+# VCS and CI config
+.git/
+.gitignore
+.github/
+
+# Build artifacts from a previous run
+output/
+*.log
+
+# Editor, agent and OS noise
+.idea/
+.vscode/
+.claude/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Docker files themselves
+.dockerignore
+Dockerfile
