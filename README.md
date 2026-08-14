@@ -11,7 +11,7 @@ Linux 6.12.8 is used to match Alpine 3.22 LTS.
 The kernel is built with:
 
 - `CONFIG_CRYPTO_FIPS=y` - Enable FIPS mode
-- `CONFIG_CRYPTO_FIPS_NAME="Alpine Linux FIPS 140-3"`
+- `CONFIG_CRYPTO_FIPS_NAME="Linux FIPS 140-3"`
 - All required crypto algorithms (SHA256, SHA512, AES, etc.)
 - `CONFIG_MODULE_SIG=y` - Module signing (required for FIPS)
 - `CONFIG_CRYPTO_MANAGER_DISABLE_TESTS=n` - Enable crypto self-tests (required for FIPS)
@@ -55,16 +55,24 @@ See [`configs/README.md`](configs/README.md) for details on creating custom prof
 
 ### Other Commands
 
+Verify the built kernel — checks the image and modules tarball exist and match
+their recorded checksums:
+
+```bash
+make test
+```
+
+Run the security suite (Dockerfile and shell linting, plus both Trivy scans —
+`conventions/devops.md` §8):
+
+```bash
+make security
+```
+
 Clean build artifacts:
 
 ```bash
 make clean
-```
-
-Test the built kernel:
-
-```bash
-make test
 ```
 
 ## Output

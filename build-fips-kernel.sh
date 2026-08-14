@@ -168,7 +168,14 @@ log "✓ CONFIG_CRYPTO_FIPS=y verified in kernel configuration"
 # Build kernel
 log "Building FIPS kernel (this may take 15-30 minutes)..."
 log "Using $(nproc) CPU cores"
-# Write build log to /output so it persists after container exits
+
+# The output directory must exist before the build log is written into it.
+# This script owns creating it: relying on the caller to supply it as a bind
+# mount meant that without one, `tee` below could not open the log, and under
+# `set -o pipefail` that turned a SUCCESSFUL compile into a reported failure.
+mkdir -p "${OUTPUT_DIR}"
+
+# Write build log to the output directory so it persists after the container exits
 BUILD_LOG="${OUTPUT_DIR}/kernel-build.log"
 if ! make -j"$(nproc)" bzImage modules 2>&1 | tee "${BUILD_LOG}"; then
     echo ""
@@ -184,9 +191,6 @@ fi
 # Get kernel version string
 KVER=$(make -s kernelversion)
 log "Built kernel version: ${KVER}"
-
-# Prepare output
-mkdir -p "${OUTPUT_DIR}"
 
 # Copy kernel image
 log "Copying kernel image..."
