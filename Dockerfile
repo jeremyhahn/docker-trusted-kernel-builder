@@ -1,3 +1,8 @@
+# DS-0002 ACCEPTED RISK (owner ruling 2026-08-20): this is a BUILD-TIME tool
+# image — it installs distro packages and produces artifacts, is never deployed
+# as a service, and never faces traffic. Root is required for package installs
+# and device/loop operations; a USER directive would break the build for no
+# runtime benefit. Re-evaluate only if this image ever becomes a runtime image.
 FROM alpine:3.22
 
 # Install kernel build dependencies
