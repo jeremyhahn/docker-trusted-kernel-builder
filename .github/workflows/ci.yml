@@ -20,6 +20,29 @@ on:
   # workflow can be dispatched by hand (ci-template v1.3).
   workflow_dispatch:
 
+# Cancel a run that a newer push to the same ref has superseded (ci-template
+# v1.4). This repo is an expensive case: `build-kernel` is a full kernel
+# compile with a 90-minute timeout and `trivy-image` builds the image from
+# scratch, so a superseded run holds a scarce runner slot for a long time.
+#
+# The group leads with `github.workflow`, so the `CI` group is disjoint from
+# the separate `Code Review` workflow that gates merges -- cancelling here
+# structurally cannot touch that check. The `github.ref` component keeps each
+# branch in its own group; a key without it puts every run in the repository
+# into one group, which starves rather than supersedes.
+#
+# `cancel-in-progress` is the LITERAL `true`: Gitea 1.27.1 does not evaluate
+# expressions in this field and treats any non-empty value as truthy, so an
+# expression here would read as permanently enabled regardless of what it
+# evaluates to.
+#
+# Deliberately workflow-level and NOT applied to `release.yml`, nor to the
+# `docker-push` job: cancelling a run mid-publish risks a partial registry
+# push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   security-events: write
