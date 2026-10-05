@@ -1,4 +1,4 @@
-# ci-template: v1 (adapted — container-builder repo, no Go code)
+# ci-template: v1.15 (adapted — container-builder repo, no Go code)
 #
 # Reconciled against software/templates/github-actions/ci.yml in the
 # automatethethings repo (devops.md §1/§8/§9). This repo builds a container
@@ -12,9 +12,11 @@ name: CI
 
 on:
   push:
-    branches: [main, master, develop]
+    # main is the only trunk. automerge.yml's merge trains are PRs from
+    # merge-train/* and get CI from pull_request (ci-template v1.15).
+    branches: [main]
   pull_request:
-    branches: [main, master, develop]
+    branches: [main]
   # Gitea has no API to re-run a finished run, so a run that failed for the
   # runner's own reasons can only be repeated by inventing a commit unless the
   # workflow can be dispatched by hand (ci-template v1.3).
@@ -157,7 +159,8 @@ jobs:
   build:
     name: Build Docker Image
     runs-on: ubuntu-latest
-    needs: lint
+    # No `needs` (ci-template v1.14): every job starts at once, so a run takes
+    # as long as its slowest job. CI Gate needs them all and fails closed.
 
     steps:
     - name: Checkout code
@@ -181,9 +184,10 @@ jobs:
   build-kernel:
     name: Build FIPS Kernel
     runs-on: ubuntu-latest
-    needs: [build, trivy, trivy-image]
+    # No `needs` (ci-template v1.14): `make build` builds its own image, so
+    # nothing here is consumed from `build` or the scans.
     # A full kernel compile is expensive; only run it on default-branch pushes.
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     timeout-minutes: 90
 
     steps:
@@ -236,7 +240,7 @@ jobs:
     # ghcr.io does not exist on Gitea (lessons.md); publishing to Gitea's own
     # registry is a separate change, so this job is GitHub-only for now.
     # trivy-image gates it: §8 requires the scan BEFORE any registry push.
-    if: github.server_url == 'https://github.com' && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: github.server_url == 'https://github.com' && github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       packages: write
       contents: read
