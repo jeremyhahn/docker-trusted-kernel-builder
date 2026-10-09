@@ -15,13 +15,13 @@ None. Target kind RC, no projected date.
 
 ## Now
 
-- [#6](http://git.example.internal/jeremyhahn/docker-trusted-kernel-builder/issues/6) Trivy image verdict independent of the building runner — blocked: see issue
-- [#11](http://git.example.internal/jeremyhahn/docker-trusted-kernel-builder/issues/11) signed release artifacts — open
-- [#12](http://git.example.internal/jeremyhahn/docker-trusted-kernel-builder/issues/12) docs conformance for index and serena — open
+- [#6](../../issues/6) Trivy image verdict independent of the building runner — blocked: see issue
+- [#11](../../issues/11) signed release artifacts — open
+- [#12](../../issues/12) docs conformance for index and serena — open
 
 ## Next
 
-- [#8](http://git.example.internal/jeremyhahn/docker-trusted-kernel-builder/issues/8) decommissioned task-worker.yml removed — open
+- [#8](../../issues/8) decommissioned task-worker.yml removed — open
 
 ## Later
 
