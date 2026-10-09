@@ -9,7 +9,12 @@ OUTPUT_DIR ?= $(PWD)/output
 DOCKER_IMAGE ?= trusted-kernel-builder
 BUILD_CONTAINER ?= trusted-kernel-build
 
-.PHONY: all build test lint fs-scan image-scan security clean
+# actionlint pin for the docker fallback in `lint`; matches the version the
+# runner and worker images bake (devops.md §9).
+ACTIONLINT_VERSION ?= 1.7.12
+WORKFLOWS := $(wildcard .github/workflows/*.yml .github/workflows/*.yaml)
+
+.PHONY: all image build test lint require-trivy fs-scan image-scan security clean
 
 all: build
 
@@ -59,7 +64,22 @@ test:
 
 # Linters are piped their input on stdin: a `-v $(PWD):/mnt` bind mount fails
 # in CI for the same daemon-path reason documented on the build target.
+#
+# actionlint (devops.md §4) runs from PATH when installed, so it also finds
+# .github/actionlint.yaml; otherwise from its pinned image on stdin, which sees
+# no config file. None is needed while every job runs on ubuntu-latest; a
+# self-hosted runner label must be declared there and actionlint installed.
 lint:
+	@echo "Linting workflows (actionlint)..."
+	@if command -v actionlint >/dev/null 2>&1; then \
+		actionlint $(WORKFLOWS); \
+	else \
+		for f in $(WORKFLOWS); do \
+			echo "  $$f"; \
+			docker run --rm -i rhysd/actionlint:$(ACTIONLINT_VERSION) \
+				-stdin-filename "$$f" - < "$$f" || exit 1; \
+		done; \
+	fi
 	@echo "Linting Dockerfile (hadolint)..."
 	docker run --rm -i hadolint/hadolint:latest \
 		hadolint --failure-threshold warning - < Dockerfile
@@ -73,7 +93,16 @@ lint:
 # devops.md §8. The Go suite (gosec, govulncheck, go mod verify, golangci-lint)
 # has no analogue here — this repo contains no Go code — so the gate is the
 # Dockerfile/shell linters plus both trivy scans.
-fs-scan:
+# A scan that cannot run must fail, never pass vacuously.
+require-trivy:
+	@command -v trivy >/dev/null 2>&1 || { \
+		echo "ERROR: trivy not found on PATH; the security scans cannot run." >&2; \
+		echo "Install it, e.g.:" >&2; \
+		echo "  curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin" >&2; \
+		exit 1; \
+	}
+
+fs-scan: require-trivy
 	@echo "Scanning source tree (trivy fs)..."
 	trivy fs --scanners vuln,secret \
 		--severity CRITICAL,HIGH --exit-code 1 .
@@ -81,7 +110,7 @@ fs-scan:
 # --ignore-unfixed is ratified for IMAGE scans only (devops.md §8): base images
 # carry unfixable distro advisories at any moment, so a raw gate is permanently
 # red. The fs scan above deliberately does NOT use it.
-image-scan: image
+image-scan: require-trivy image
 	@echo "Scanning image (trivy image)..."
 	trivy image --scanners vuln,secret \
 		--severity CRITICAL,HIGH --ignore-unfixed --exit-code 1 $(DOCKER_IMAGE)

@@ -29,21 +29,21 @@ jobs:
         id: get_version
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Version: ${VERSION}"
 
       - name: Generate changelog
         id: changelog
         run: |
           # Get previous tag
-          PREV_TAG=$(git describe --abbrev=0 --tags $(git rev-list --tags --skip=1 --max-count=1) 2>/dev/null || echo "")
+          PREV_TAG=$(git describe --abbrev=0 --tags "$(git rev-list --tags --skip=1 --max-count=1)" 2>/dev/null || echo "")
 
           if [ -z "$PREV_TAG" ]; then
             echo "First release - generating full changelog"
             CHANGELOG=$(git log --pretty=format:"* %s (%h)" --no-merges)
           else
             echo "Generating changelog from ${PREV_TAG} to ${GITHUB_REF_NAME}"
-            CHANGELOG=$(git log ${PREV_TAG}..HEAD --pretty=format:"* %s (%h)" --no-merges)
+            CHANGELOG=$(git log "${PREV_TAG}..HEAD" --pretty=format:"* %s (%h)" --no-merges)
           fi
 
           # Save changelog to file
@@ -158,7 +158,7 @@ jobs:
         id: kernel_version
         run: |
           KVER=$(cat output/kernel-version.txt)
-          echo "kernel_version=${KVER}" >> $GITHUB_OUTPUT
+          echo "kernel_version=${KVER}" >> "$GITHUB_OUTPUT"
           echo "Kernel version: ${KVER}"
 
       - name: Create release archive
@@ -324,17 +324,19 @@ jobs:
 
       - name: Release summary
         run: |
-          echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Version: **${{ needs.create-release.outputs.version }}**" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Artifacts Published" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "#### Kernel Package" >> $GITHUB_STEP_SUMMARY
-          echo "- \`vmlinuz-fips-${{ needs.create-release.outputs.version }}.tar.gz\` - FIPS kernel and modules" >> $GITHUB_STEP_SUMMARY
-          echo "- SHA256 checksums included for verification" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "#### Docker Image" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ghcr.io/${{ github.repository_owner }}/kernel-fips-builder:${{ needs.create-release.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## Release Summary"
+            echo ""
+            echo "Version: **${{ needs.create-release.outputs.version }}**"
+            echo ""
+            echo "### Artifacts Published"
+            echo ""
+            echo "#### Kernel Package"
+            echo "- \`vmlinuz-fips-${{ needs.create-release.outputs.version }}.tar.gz\` - FIPS kernel and modules"
+            echo "- SHA256 checksums included for verification"
+            echo ""
+            echo "#### Docker Image"
+            echo '```bash'
+            echo "docker pull ghcr.io/${{ github.repository_owner }}/kernel-fips-builder:${{ needs.create-release.outputs.version }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
