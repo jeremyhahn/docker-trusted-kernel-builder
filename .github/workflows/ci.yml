@@ -57,10 +57,23 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    env:
+      # Keep in step with ACTIONLINT_VERSION in the Makefile.
+      ACTIONLINT_VERSION: 1.7.12
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v6
+
+    # make lint's stdin (docker) path cannot read .github/actionlint.yaml, and
+    # the self-hosted `qwen` label is declared there: put actionlint on PATH.
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: '1.27.3'
+
+    - name: Install actionlint
+      run: go install "github.com/rhysd/actionlint/cmd/actionlint@v${ACTIONLINT_VERSION}"
 
     # make lint is the contract (devops.md §4). It pipes each file to the
     # linter on stdin rather than bind-mounting the workspace: bind mount
