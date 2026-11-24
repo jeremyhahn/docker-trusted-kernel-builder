@@ -1,6 +1,6 @@
 # docker-trusted-kernel-builder roadmap
 
-> **Status: REFERENCE** · Owner: Software Department · Last verified: 2026-10-08
+> **Status: REFERENCE** · Last verified: 2026-10-08
 > Changes are proposed by docs-only PR.
 
 ## Mission

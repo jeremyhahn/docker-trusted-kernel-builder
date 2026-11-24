@@ -21,12 +21,7 @@ all: build
 image:
 	docker build -t $(DOCKER_IMAGE) .
 
-# Artifacts are copied out of a stopped container rather than bind-mounted.
-# A bind mount source is resolved by the docker DAEMON, not the client, so in
-# CI — where the job itself runs inside a container sharing the host's docker
-# socket — the workspace path does not exist for the daemon and `docker run`
-# dies with exit 125. `docker cp` streams through the API and extracts on the
-# client side, so it lands in the workspace on every host.
+# docker cp, not a bind mount: in CI the daemon cannot see the job's workspace path.
 build: image
 	@echo "Building FIPS-capable kernel $(KERNEL_VERSION) with profile $(KERNEL_PROFILE)..."
 	@docker rm -f $(BUILD_CONTAINER) >/dev/null 2>&1 || true
@@ -90,10 +85,7 @@ lint:
 			--severity=warning --shell=bash - < "$$f" || exit 1; \
 	done
 
-# devops.md §8. The Go suite (gosec, govulncheck, go mod verify, golangci-lint)
-# has no analogue here — this repo contains no Go code — so the gate is the
-# Dockerfile/shell linters plus both trivy scans.
-# A scan that cannot run must fail, never pass vacuously.
+# No Go code here, so the gate is the Dockerfile and shell linters plus both trivy scans; a scan that cannot run fails.
 require-trivy:
 	@command -v trivy >/dev/null 2>&1 || { \
 		echo "ERROR: trivy not found on PATH; the security scans cannot run." >&2; \
