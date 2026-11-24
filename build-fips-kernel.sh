@@ -169,10 +169,7 @@ log "✓ CONFIG_CRYPTO_FIPS=y verified in kernel configuration"
 log "Building FIPS kernel (this may take 15-30 minutes)..."
 log "Using $(nproc) CPU cores"
 
-# The output directory must exist before the build log is written into it.
-# This script owns creating it: relying on the caller to supply it as a bind
-# mount meant that without one, `tee` below could not open the log, and under
-# `set -o pipefail` that turned a SUCCESSFUL compile into a reported failure.
+# Create the output directory before tee writes the build log into it.
 mkdir -p "${OUTPUT_DIR}"
 
 # Write build log to the output directory so it persists after the container exits
